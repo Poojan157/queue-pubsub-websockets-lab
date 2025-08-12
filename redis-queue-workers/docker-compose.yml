@@ -1,0 +1,36 @@
+services:
+  redis:
+    image: redis
+    container_name: my_redis
+    ports:
+      - "6379:6379"        # optional: only exposed on host for debugging
+    volumes:
+      - redis-data:/data
+    restart: unless-stopped
+
+  app:
+    build: .
+    container_name: my_app
+    command: node index.js
+    environment:
+      - REDIS_URL=redis://redis:6379
+    ports:
+      - "3000:3000"
+    depends_on:
+      - redis
+    restart: unless-stopped
+
+  worker:
+    build: .
+    container_name: my_worker   # name is same; will be suffixed if scaled
+    command: node worker.js
+    environment:
+      - REDIS_URL=redis://redis:6379
+    depends_on:
+      - redis
+    restart: unless-stopped
+    # Do not use "ports" for workers (they don't need to be exposed)
+    # We'll scale this service with `docker-compose up --scale worker=4`
+
+volumes:
+  redis-data:
