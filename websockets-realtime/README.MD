@@ -4,7 +4,7 @@
 
 ![Architecture](https://www.notion.so/image/https%3A%2F%2Fprod-files-secure.s3.us-west-2.amazonaws.com%2F085e8ad8-528e-47d7-8922-a23dc4016453%2Fa19ddc6b-fe53-4df3-9166-76e4da9f3f45%2FScreenshot_2024-04-07_at_5.45.42_PM.png?table=block&id=28cb2e3e-0f9b-4741-937f-82dffb19d820&cache=v2)
 
-> **Diagram credit:** Architecture diagram sourced from and adapted with permission from Harkirat Singh — [https://projects.100xdevs.com/tracks/Redis/Redis1](https://projects.100xdevs.com/tracks/Redis/Redis1)
+> **Diagram credit:** Architecture diagram sourced from Harkirat Singh's tutorial — [https://www.youtube.com/watch?v=IJkYipYNEtI](https://www.youtube.com/watch?v=IJkYipYNEtI)
 
 ---
 
@@ -179,4 +179,4 @@ This project is provided for learning and demonstration. Adjust the license as a
 
 ## Credits
 
-* Inspired by and adapted from materials by **Harkirat Singh**. Diagram and conceptual flow adapted from [https://projects.100xdevs.com/tracks/Redis/Redis1](https://projects.100xdevs.com/tracks/Redis/Redis1). Please visit his resources for additional Redis learning content.
+* Inspired by **Harkirat Singh's** YouTube tutorial on Redis architecture and real-time systems. Check out the tutorial: [https://www.youtube.com/watch?v=IJkYipYNEtI](https://www.youtube.com/watch?v=IJkYipYNEtI)
