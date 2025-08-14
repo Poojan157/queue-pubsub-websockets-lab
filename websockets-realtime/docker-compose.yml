@@ -1,0 +1,48 @@
+services:
+  redis:
+    image: redis
+    container_name: redis
+    ports:
+      - "6379:6379"
+
+  server:
+    build: .
+    container_name: websocket-server
+    command: ["node", "index.js"]
+    ports:
+      - "3000:3000"
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+  worker1:
+    build: .
+    container_name: worker1
+    command: ["node", "worker.js"]
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+  worker2:
+    build: .
+    container_name: worker2
+    command: ["node", "worker.js"]
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+
+  worker3:
+    build: .
+    container_name: worker3
+    command: ["node", "worker.js"]
+    depends_on:
+      - redis
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
