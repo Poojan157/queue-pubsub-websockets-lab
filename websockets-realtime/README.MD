@@ -2,9 +2,9 @@
 
 > Simple, Dockerized demo showing a WebSocket + HTTP server that accepts code submissions, a Redis-backed queue consumed by multiple workers, and real-time status updates via Redis Pub/Sub forwarded over WebSocket.
 
-![Architecture](https://www.notion.so/image/https%3A%2F%2Fprod-files-secure.s3.us-west-2.amazonaws.com%2F085e8ad8-528e-47d7-8922-a23dc4016453%2Fa19ddc6b-fe53-4df3-9166-76e4da9f3f45%2FScreenshot_2024-04-07_at_5.45.42_PM.png?table=block&id=28cb2e3e-0f9b-4741-937f-82dffb19d820&cache=v2)
+![Architecture](https://camo.githubusercontent.com/95fd8cff858073ab8441db7f2be2d8b5216ee5751a8f569ec11aea22f189c8f8/68747470733a2f2f7777772e6e6f74696f6e2e736f2f696d6167652f687474707325334125324625324670726f642d66696c65732d7365637572652e73332e75732d776573742d322e616d617a6f6e6177732e636f6d25324630383565386164382d353238652d343764372d383932322d61323364633430313634353325324661313964646336622d666535332d346466332d393136362d37366534646139663366343525324653637265656e73686f745f323032342d30342d30375f61745f352e34352e34325f504d2e706e673f7461626c653d626c6f636b2669643d32386362326533652d306639622d343734312d393337662d3832646666623139643832302663616368653d7632)
 
-> **Diagram credit:** Architecture diagram sourced from Harkirat Singh's tutorial — [https://www.youtube.com/watch?v=IJkYipYNEtI](https://www.youtube.com/watch?v=IJkYipYNEtI)
+> **Diagram credit:** Architecture diagram from Harkirat Singh's YouTube tutorial — [https://www.youtube.com/watch?v=IJkYipYNEtI](https://www.youtube.com/watch?v=IJkYipYNEtI)
 
 ---
 
@@ -13,7 +13,7 @@
 This repository contains a minimal but realistic demo of a submission-evaluation pipeline built for learning and experimentation. The main goals:
 
 * Accept code submissions over an HTTP API.
-* Enqueue jobs in Redis (`jobs:queue`).
+* Enqueue jobs in Redis using `LPUSH` to a `problems` queue.
 * Have one or more worker processes `BRPOP` the queue, "process" the job (simulated), and publish status updates to a Redis pub/sub channel (`problem_done`).
 * Forward published status updates to connected browser clients over WebSocket in real time.
 * Run everything locally using Docker Compose (1 Redis, 1 combined HTTP+WS server, 3 workers by default).
@@ -33,21 +33,21 @@ project/
 ├─ Dockerfile
 ├─ docker-compose.yml
 ├─ .dockerignore
-├─ .gitignore
-└─ architecture.png    # (optional) architecture diagram used by README
+└─ .gitignore
 ```
 
 ---
 
-## Architecture (plain English)
+## Architecture Flow
 
-1. Browser opens a WebSocket connection to the server and stays connected.
-2. Browser sends a `POST /submit` with `{ problemId, code, language }` to the same server.
-3. Server creates a `jobId`, writes minimal metadata to Redis (`HSET job:{jobId}`), and pushes the job payload into a Redis list (`RPUSH jobs:queue`).
-4. One of the worker processes calls `BRPOP jobs:queue` and gets the job, updates the `job:{jobId}` status to `processing`, "executes" the job (simulated here), sets a final status (e.g. `Accepted` / `Wrong Answer` / `Time Limit Exceeded`), then `PUBLISH`es the event to `problem_done`.
-5. The server has a Redis subscriber listening on `problem_done`. When a message arrives it forwards it to all connected WebSocket clients (or you can extend routing to send only to the job's owner).
+1. **Client connects WebSocket** to the server and stays connected.
+2. **Client sends POST /submit** with `{ problemId, code, language }` to the same server.
+3. **Server enqueues submission** using `LPUSH problems` with the job payload as JSON.
+4. **Worker pops job** using `BRPOP problems 20` and processes the submission (simulated with 5s delay).
+5. **Worker publishes result** to `problem_done` channel with a random status (`Accepted`, `Wrong Answer`, `Time Limit Exceeded`).
+6. **Server forwards result** to all connected WebSocket clients in real time.
 
-This yields low-latency updates and a clear separation between the HTTP/API surface and CPU-bound work done by workers.
+This yields low-latency updates and clean separation between the HTTP/API surface and CPU-bound work done by workers.
 
 ---
 
@@ -64,7 +64,7 @@ docker compose up --build
 
 2. Services once up:
 
-* WebSocket + HTTP server: `http://localhost:3000` (WS `ws://localhost:3000/?userId=<id>`)
+* WebSocket + HTTP server: `http://localhost:3000` (WS `ws://localhost:3000`)
 * Redis: `localhost:6379`
 
 3. Send a test submission (use your terminal or a HTTP client):
@@ -72,18 +72,19 @@ docker compose up --build
 ```bash
 curl -X POST http://localhost:3000/submit \
   -H "Content-Type: application/json" \
-  -d '{"userId":"1","problemId":1,"language":"python","code":"print(1)"}'
+  -d '{"problemId":"1","code":"print(1)","language":"python"}'
 ```
 
-4. Open a browser console and connect a WebSocket client first then POST the job:
+4. Open a browser console and connect a WebSocket client:
 
 ```js
 // In browser console
-const ws = new WebSocket('ws://localhost:3000/?userId=1');
-ws.onmessage = e => console.log('event', JSON.parse(e.data));
+const ws = new WebSocket('ws://localhost:3000');
+ws.onmessage = e => console.log('Result:', JSON.parse(e.data));
+ws.onopen = () => console.log('WebSocket connected');
 ```
 
-You should see `processing` and then a final status event from the worker.
+You should see the submission result after ~5 seconds of processing.
 
 To stop and remove containers:
 
@@ -93,90 +94,83 @@ docker compose down
 
 ---
 
-## Redis keys & channels used
+## Redis Usage
 
-* **Queue (list):** `jobs:queue` (RPUSH to enqueue, BRPOP to consume)
-* **Job metadata (hash):** `job:{jobId}` fields: `status`, `userId`, `problemId`, `createdAt`, `sizeBytes`, `resultRef`
-* **Pub/Sub channel:** `problem_done` — workers `PUBLISH` JSON events to this channel
-* **Optional per-job events:** `job:{jobId}:events` (RPUSH for durable event backfill)
+* **Queue (list):** `problems` - submissions are pushed with `LPUSH`, workers consume with `BRPOP`
+* **Pub/Sub channel:** `problem_done` - workers publish results, server subscribes and forwards to WebSocket clients
 
 ---
 
-## Message formats
+## Message Formats
 
 **Submit (HTTP POST /submit)**
 
 ```json
-{ "userId": "123", "problemId": 1, "language": "python", "code": "print(1)", "sizeBytes": 1234 }
+{
+  "problemId": "1",
+  "code": "print('Hello World')",
+  "language": "python"
+}
 ```
 
-**Worker → PubSub event (stringified JSON)**
+**Worker Result (published to problem_done)**
 
 ```json
-{ "jobId": "job-abc", "userId": "123", "status": "processing", "ts": 169xxx }
+{
+  "problemId": "1",
+  "code": "print('Hello World')",
+  "language": "python",
+  "status": "Accepted"
+}
 ```
 
-**Final event**
-
-```json
-{ "jobId":"job-abc", "userId":"123", "status":"Accepted", "result": {"output":"OK"}, "ts": 169xxx }
-```
-
-The WebSocket server forwards the exact JSON payload received from `problem_done` to connected clients.
+The WebSocket server forwards the exact JSON payload from `problem_done` to all connected clients.
 
 ---
 
-## Key implementation notes & gotchas
+## Key Implementation Details
 
-* **Write job metadata before enqueueing.** The server writes `HSET job:{jobId}` before pushing to `jobs:queue` to avoid races.
-* **BRPOP timeout for graceful shutdown.** Use a small timeout (e.g. 1–5s) rather than `0` if you prefer cooperative shutdown checks. The included worker uses a 20s timeout to keep shutdown responsive.
-* **Single subscriber instance.** The server duplicates the main Redis client for pub/sub and subscribes once. Don't create a Redis connection per WebSocket — that will exhaust file descriptors under load.
-* **Pub/Sub is ephemeral.** Redis pub/sub messages are not persistent. If a WebSocket server goes down, those live events are lost. Use Redis Streams or persist events to a list for replay/backfill if you need durability.
-* **Do not execute untrusted code** inside workers without sandboxing. This demo simulates execution; in a real system you must sandbox runs (e.g. using containers, Firecracker, or remote judge services).
+* **LPUSH/BRPOP for queue**: Server uses `LPUSH problems` to enqueue, workers use `BRPOP problems 20` with 20s timeout for graceful shutdown.
+* **Duplicate Redis client for pub/sub**: Server creates a separate subscriber client to avoid blocking the main client.
+* **Broadcast to all WebSockets**: Current implementation sends results to all connected clients. You can extend this to route messages to specific users.
+* **Simulated processing**: Workers sleep for 5 seconds and return a random status. Replace this with actual code execution in production.
+* **Graceful shutdown**: Both server and workers handle SIGINT properly, closing Redis connections cleanly.
 
 ---
 
-## Development tips
+## Development Tips
 
 * Use `docker compose logs -f server` and `docker compose logs -f worker` to watch logs.
-* Use `redis-cli` to inspect queues and hashes during debugging:
+* Use `redis-cli` to inspect the queue during debugging:
 
 ```bash
-# inside container or with redis-cli configured to the host
-LRANGE jobs:queue 0 -1
-HGETALL job:<jobId>
-```
+# Check queue length and contents
+LLEN problems
+LRANGE problems 0 -1
 
-* Set Redis client names for easier debugging:
-
-```js
-await client.sendCommand(['CLIENT', 'SETNAME', 'worker-consumer']);
+# Monitor pub/sub activity
+MONITOR
 ```
 
 ---
 
-## Scaling & production notes
+## Scaling Notes
 
-* In production you may combine the queue and pubsub into one Redis instance, or use Redis Streams / Kafka for higher durability and replay.
-* If you run multiple server instances behind a load balancer, handle WebSocket affinity (sticky sessions) or use a message router so that pubsub events are routed to the correct node.
-* Monitor memory, file descriptors, and connection counts when you scale workers or sockets.
+* Add more worker replicas in `docker-compose.yml` to increase throughput.
+* For production, implement proper sandboxing for code execution (containers, VMs, etc.).
+* Consider using Redis Streams instead of pub/sub for message durability and replay capability.
+* Add user-specific routing instead of broadcasting to all WebSocket connections.
 
 ---
 
 ## Troubleshooting
 
-* **WebSocket doesn't receive events:** ensure the server is subscribed to `problem_done`, the worker `PUBLISH`es to the same Redis instance, and that WebSocket connects to the correct host/port.
-* **Jobs stuck in queue:** check `LRANGE jobs:queue 0 -1` and ensure worker(s) are connected and using the same Redis host.
-* **Shutdown hangs on Ctrl+C:** see graceful shutdown notes — use a BRPOP timeout or a shutdown timeout fallback when calling `quit()`.
-
----
-
-## License
-
-This project is provided for learning and demonstration. Adjust the license as appropriate for your use.
+* **WebSocket doesn't receive events**: Check that server is subscribed to `problem_done` and workers are publishing to the same Redis instance.
+* **Jobs stuck in queue**: Use `LLEN problems` to check queue and ensure workers are running.
+* **Connection issues**: Verify Redis is running and accessible at the configured URL.
 
 ---
 
 ## Credits
 
-* Inspired by **Harkirat Singh's** YouTube tutorial on Redis architecture and real-time systems. Check out the tutorial: [https://www.youtube.com/watch?v=IJkYipYNEtI](https://www.youtube.com/watch?v=IJkYipYNEtI)
+* Inspired by **Harkirat Singh's** YouTube tutorial on Redis architecture and real-time systems: [https://www.youtube.com/watch?v=IJkYipYNEtI](https://www.youtube.com/watch?v=IJkYipYNEtI)
